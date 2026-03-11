@@ -1,11 +1,5 @@
 /**
- * QUANTUM GAMBIT v1.3 - FULL STABLE RELEASE
- * Rules:
- * 1. Draw card to determine move power.
- * 2. Queen has randomized max distance.
- * 3. Capture ORIGINAL KING to win.
- * 4. Movement guides show valid paths.
- * 5. AI moves are highlighted with red borders.
+ * QUANTUM GAMBIT v1.4 - FIX STATE & VISUAL REVEAL
  */
 
 const boardElement = document.getElementById('board');
@@ -13,7 +7,6 @@ const cardElement = document.getElementById('role-card');
 const roleText = document.getElementById('card-role-text');
 const timerProgress = document.getElementById('timer-progress');
 
-// Preload Sounds (Ganti URL jika ada file sendiri)
 const flipSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2004/2004-preview.mp3');
 const moveSound = new Audio('https://assets.mixkit.co/active_storage/sfx/206/206-preview.mp3');
 
@@ -33,7 +26,6 @@ const PIECE_ICONS = {
     'ROOK': '♜', 'QUEEN': '♛', 'KING': '♚', 'UNKNOWN': '❓' 
 };
 
-// 1. Initialize Game
 function initBoard() {
     clearInterval(timerInterval);
     gameOver = false;
@@ -44,43 +36,33 @@ function initBoard() {
     
     board = Array(8).fill(null).map(() => Array(8).fill(null));
     
-    // Set up Black (AI)
     for (let c = 0; c < 8; c++) {
         board[0][c] = { side: 'black', type: 'UNKNOWN', isOriginalKing: (c === 4) };
         board[1][c] = { side: 'black', type: 'UNKNOWN', isOriginalKing: false };
-    }
-    
-    // Set up White (Player)
-    for (let c = 0; c < 8; c++) {
         board[6][c] = { side: 'white', type: 'UNKNOWN', isOriginalKing: false };
         board[7][c] = { side: 'white', type: 'UNKNOWN', isOriginalKing: (c === 4) };
     }
     
-    document.getElementById('current-player').innerText = "WHITE";
+    updateUIStatus();
     renderBoard();
     startTimer();
 }
 
-// 2. Timer Management
 function startTimer() {
     clearInterval(timerInterval);
     timeLeft = 15;
     if (timerProgress) timerProgress.style.width = '100%';
-    
     timerInterval = setInterval(() => {
-        if (gameOver) { clearInterval(timerInterval); return; }
+        if (gameOver) return;
         timeLeft--;
         if (timerProgress) timerProgress.style.width = (timeLeft / 15) * 100 + '%';
-        
         if (timeLeft <= 0) {
-            clearInterval(timerInterval);
-            alert("Masa Tamat! Tukar giliran.");
+            alert("Masa Tamat!");
             resetTurn();
         }
     }, 1000);
 }
 
-// 3. Drawing Cards
 cardElement.onclick = () => {
     if (gameOver || isCardDrawn || currentTurn === 'black') return;
     drawCard();
@@ -89,36 +71,41 @@ cardElement.onclick = () => {
 function drawCard() {
     isCardDrawn = true;
     currentPower = ROLES[Math.floor(Math.random() * ROLES.length)];
-    
     if (currentPower === 'QUEEN') {
-        queenRange = Math.floor(Math.random() * 5) + 2; // Range 2-6
-        roleText.innerHTML = `QUEEN<br><span style="font-size:12px;">Dist: ${queenRange}</span>`;
+        queenRange = Math.floor(Math.random() * 5) + 2;
+        roleText.innerHTML = `QUEEN<br><small>Range: ${queenRange}</small>`;
     } else {
         queenRange = 8;
         roleText.innerHTML = currentPower;
     }
-    
     cardElement.classList.add('flipped');
-    if (flipSound) flipSound.play();
+    flipSound.play().catch(e => {});
 }
 
-// 4. Movement Logic
 function handleSquareClick(r, c) {
-    if (!isCardDrawn || gameOver) return;
+    if (gameOver || currentTurn === 'black') return;
+    if (!isCardDrawn) {
+        alert("Sila cabut kad dahulu!");
+        return;
+    }
 
     const piece = board[r][c];
 
+    // Case 1: Memilih buah
     if (!selectedSquare) {
         if (piece && piece.side === currentTurn) {
             selectedSquare = { r, c };
-            renderBoard();
+            // REVEAL INSTANT: Tukar rupa buah kepada power sekarang secara visual
+            renderBoard(); 
             showGuides(r, c);
         }
-    } else {
+    } 
+    // Case 2: Memilih destinasi atau menukar buah
+    else {
         if (isValidMove(selectedSquare.r, selectedSquare.c, r, c, currentPower)) {
             executeMove(selectedSquare.r, selectedSquare.c, r, c);
         } else {
-            // Tukar selection jika klik kawan lain
+            // Jika klik buah sendiri yang lain, tukar selection
             if (piece && piece.side === currentTurn) {
                 selectedSquare = { r, c };
                 renderBoard();
@@ -131,6 +118,46 @@ function handleSquareClick(r, c) {
     }
 }
 
+function renderBoard() {
+    boardElement.innerHTML = '';
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const sq = document.createElement('div');
+            sq.className = `square ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
+            sq.dataset.row = r; sq.dataset.col = c;
+            
+            const p = board[r][c];
+            if (p) {
+                // LOGIK REVEAL: Jika buah dipilih, tunjuk ikon power sekarang
+                let iconType = p.type;
+                if (selectedSquare && selectedSquare.r == r && selectedSquare.c == c) {
+                    iconType = currentPower; 
+                }
+                
+                sq.innerText = p.isOriginalKing ? PIECE_ICONS['KING'] : PIECE_ICONS[iconType];
+                sq.style.color = p.side === 'white' ? '#ffcc00' : '#888';
+            }
+
+            if (selectedSquare && selectedSquare.r == r && selectedSquare.c == c) {
+                sq.classList.add('highlight');
+            }
+            sq.onclick = () => handleSquareClick(r, c);
+            boardElement.appendChild(sq);
+        }
+    }
+}
+
+function showGuides(r, c) {
+    const squares = document.querySelectorAll('.square');
+    squares.forEach(sq => {
+        const tr = parseInt(sq.dataset.row);
+        const tc = parseInt(sq.dataset.col);
+        if (isValidMove(r, c, tr, tc, currentPower)) {
+            sq.classList.add('guide');
+        }
+    });
+}
+
 function isValidMove(fR, fC, tR, tC, role) {
     const dr = tR - fR;
     const dc = tC - fC;
@@ -139,7 +166,6 @@ function isValidMove(fR, fC, tR, tC, role) {
 
     if (targetPiece && targetPiece.side === currentTurn) return false;
     
-    // Peraturan pergerakan asas
     switch (role) {
         case 'PAWN':
             const dir = currentTurn === 'white' ? -1 : 1;
@@ -173,53 +199,14 @@ function isPathClear(fR, fC, tR, tC) {
     return true;
 }
 
-// 5. Visual Rendering
-function renderBoard() {
-    boardElement.innerHTML = '';
-    for (let r = 0; r < 8; r++) {
-        for (let c = 0; c < 8; c++) {
-            const sq = document.createElement('div');
-            sq.className = `square ${(r + c) % 2 === 0 ? 'light' : 'dark'}`;
-            sq.dataset.row = r; sq.dataset.col = c;
-            
-            const p = board[r][c];
-            if (p) {
-                sq.innerText = (p.isOriginalKing) ? PIECE_ICONS['KING'] : PIECE_ICONS[p.type];
-                sq.style.color = p.side === 'white' ? '#ffcc00' : '#888';
-                if (p.side === 'white' && p.type !== 'UNKNOWN') sq.style.textShadow = "0 0 8px #ffcc00";
-            }
-
-            if (selectedSquare && selectedSquare.r === r && selectedSquare.c === c) {
-                sq.classList.add('highlight');
-            }
-
-            sq.onclick = () => handleSquareClick(r, c);
-            boardElement.appendChild(sq);
-        }
-    }
-}
-
-function showGuides(r, c) {
-    const squares = document.querySelectorAll('.square');
-    squares.forEach(sq => {
-        const tr = parseInt(sq.dataset.row);
-        const tc = parseInt(sq.dataset.col);
-        if (isValidMove(r, c, tr, tc, currentPower)) {
-            sq.classList.add('guide');
-        }
-    });
-}
-
-// 6. Turn Management
 function executeMove(fR, fC, tR, tC) {
     const targetPiece = board[tR][tC];
     const movingPiece = board[fR][fC];
 
-    // Win Check
     if (targetPiece && targetPiece.isOriginalKing) {
         gameOver = true;
         renderBoard();
-        setTimeout(() => alert(`GAME OVER! PEMENANG: ${currentTurn.toUpperCase()}`), 200);
+        setTimeout(() => alert(`GAME OVER! ${currentTurn.toUpperCase()} MENANG!`), 100);
         return;
     }
 
@@ -227,14 +214,17 @@ function executeMove(fR, fC, tR, tC) {
     board[tR][tC] = movingPiece;
     board[fR][fC] = null;
     
-    if (moveSound) moveSound.play();
+    moveSound.play().catch(e => {});
     
-    // Clear old AI trail, set new one
-    document.querySelectorAll('.square').forEach(s => s.classList.remove('ai-last-move'));
-    const destSq = document.querySelector(`[data-row="${tR}"][data-col="${tC}"]`);
-    if (destSq) destSq.classList.add('ai-last-move');
-
+    // Simpan history AI move
+    const lastR = tR, lastC = tC;
     resetTurn();
+    
+    // Highlighting petak mendarat
+    setTimeout(() => {
+        const dest = document.querySelector(`[data-row="${lastR}"][data-col="${lastC}"]`);
+        if (dest) dest.classList.add('ai-last-move');
+    }, 50);
 }
 
 function resetTurn() {
@@ -242,19 +232,26 @@ function resetTurn() {
     selectedSquare = null;
     isCardDrawn = false;
     currentPower = null;
+    
+    // Flip balik kad
     cardElement.classList.remove('flipped');
-    
+    setTimeout(() => { roleText.innerHTML = "?"; }, 300);
+
     currentTurn = currentTurn === 'white' ? 'black' : 'white';
-    document.getElementById('current-player').innerText = currentTurn.toUpperCase();
-    
+    updateUIStatus();
     renderBoard();
+
     if (!gameOver) {
         startTimer();
-        if (currentTurn === 'black') setTimeout(aiMove, 1000);
+        if (currentTurn === 'black') setTimeout(aiMove, 1200);
     }
 }
 
-// 7. AI Logic
+function updateUIStatus() {
+    const turnDisplay = document.getElementById('current-player');
+    if (turnDisplay) turnDisplay.innerText = currentTurn.toUpperCase();
+}
+
 function aiMove() {
     if (gameOver) return;
 
@@ -274,7 +271,6 @@ function aiMove() {
                 for(let tr=0; tr<8; tr++) {
                     for(let tc=0; tc<8; tc++) {
                         if(isValidMove(r, c, tr, tc, currentPower)) {
-                            // Priority: Makan King Asal
                             if(board[tr][tc] && board[tr][tc].isOriginalKing) {
                                 moves = [{fR: r, fC: c, tR: tr, tC: tc}];
                                 r = 8; c = 8; break;
@@ -294,8 +290,7 @@ function aiMove() {
         } else {
             resetTurn();
         }
-    }, 1200);
+    }, 1000);
 }
 
-// Start Game
 initBoard();
